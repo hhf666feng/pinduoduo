@@ -1,0 +1,7 @@
+#ignore .metadata
+.metadata
+#.gitignore
+.phpstorm.meta.php
+node_modules/
+vendor/
+.idea/
