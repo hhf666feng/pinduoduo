@@ -14,54 +14,11 @@ class Provider extends AbstractProvider implements ProviderInterface
     const IDENTIFIER = 'PINDUODUO';
 
     /**
-     * @var string
-     */
-    protected $openId;
-
-    /**
-     * {@inheritdoc}.
-     */
-    protected $scopes = ['snsapi_userinfo'];
-
-    /**
-     * set Open Id.
-     *
-     * @param string $openId
-     */
-    public function setOpenId($openId)
-    {
-        $this->openId = $openId;
-    }
-
-    /**
      * {@inheritdoc}.
      */
     protected function getAuthUrl($state)
     {
-        return $this->buildAuthUrlFromBase('https://open.weixin.qq.com/connect/oauth2/authorize', $state);
-    }
-
-    /**
-     * {@inheritdoc}.
-     */
-    protected function buildAuthUrlFromBase($url, $state)
-    {
-        $query = http_build_query($this->getCodeFields($state), '', '&', $this->encodingType);
-
-        return $url.'?'.$query.'#wechat_redirect';
-    }
-
-    /**
-     * {@inheritdoc}.
-     */
-    protected function getCodeFields($state = null)
-    {
-        return [
-            'appid'         => $this->clientId, 'redirect_uri' => $this->redirectUrl,
-            'response_type' => 'code',
-            'scope'         => $this->formatScopes($this->scopes, $this->scopeSeparator),
-            'state'         => $state,
-        ];
+        return $this->buildAuthUrlFromBase('http://mms.pinduoduo.com/open.html', $state);
     }
 
     /**
@@ -69,7 +26,7 @@ class Provider extends AbstractProvider implements ProviderInterface
      */
     protected function getTokenUrl()
     {
-        return 'https://api.weixin.qq.com/sns/oauth2/access_token';
+        return 'http://open-api.pinduoduo.com/oauth/token';
     }
 
     /**
@@ -77,21 +34,13 @@ class Provider extends AbstractProvider implements ProviderInterface
      */
     protected function getUserByToken($token)
     {
-        if (in_array('snsapi_base', $this->scopes)) {
-            $user = ['openid' => $this->openId];
-        } else {
-            $response = $this->getHttpClient()->get('https://api.weixin.qq.com/sns/userinfo', [
-                'query' => [
-                    'access_token' => $token,
-                    'openid'       => $this->openId,
-                    'lang'         => 'zh_CN',
-                ],
-            ]);
-
-            $user = json_decode($response->getBody(), true);
-        }
-
-        return $user;
+        $response = $this->getHttpClient()->get('https://api.weibo.com/2/users/show.json', [
+            'query' => [
+                'access_token' => $token,
+                'uid' => $this->getUid($token),
+            ],
+        ]);
+        return json_decode($this->removeCallback($response->getBody()->getContents()), true);
     }
 
     /**
@@ -100,11 +49,8 @@ class Provider extends AbstractProvider implements ProviderInterface
     protected function mapUserToObject(array $user)
     {
         return (new User())->setRaw($user)->map([
-            'id'       => $user['openid'],
-            'nickname' => isset($user['nickname']) ? $user['nickname'] : null,
-            'avatar'   => isset($user['headimgurl']) ? $user['headimgurl'] : null,
-            'name'     => null,
-            'email'    => null,
+            'id' => $user['idstr'], 'nickname' => $user['name'],
+            'avatar' => $user['avatar_large'], 'name' => null, 'email' => null,
         ]);
     }
 
@@ -113,24 +59,48 @@ class Provider extends AbstractProvider implements ProviderInterface
      */
     protected function getTokenFields($code)
     {
-        return [
-            'appid' => $this->clientId, 'secret' => $this->clientSecret,
-            'code'  => $code, 'grant_type' => 'authorization_code',
-        ];
+        return array_merge(parent::getTokenFields($code), [
+            'grant_type' => 'authorization_code',
+        ]);
     }
 
     /**
      * {@inheritdoc}.
      */
-    public function getAccessTokenResponse($code)
+    public function getAccessToken($code)
     {
-        $response = $this->getHttpClient()->get($this->getTokenUrl(), [
+        $response = $this->getHttpClient()->post($this->getTokenUrl(), [
             'query' => $this->getTokenFields($code),
         ]);
-
         $this->credentialsResponseBody = json_decode($response->getBody(), true);
-        $this->openId = $this->credentialsResponseBody['openid'];
+        return $this->parseAccessToken($response->getBody());
+    }
 
-        return $this->credentialsResponseBody;
+    /**
+     * @param mixed $response
+     *
+     * @return string
+     */
+    protected function removeCallback($response)
+    {
+        if (strpos($response, 'callback') !== false) {
+            $lpos = strpos($response, '(');
+            $rpos = strrpos($response, ')');
+            $response = substr($response, $lpos + 1, $rpos - $lpos - 1);
+        }
+        return $response;
+    }
+
+    /**
+     * @param $token
+     *
+     * @return string
+     */
+    protected function getUid($token)
+    {
+        $response = $this->getHttpClient()->get('https://api.weibo.com/2/account/get_uid.json', [
+            'query' => ['access_token' => $token],
+        ]);
+        return json_decode($response->getBody(), true)['uid'];
     }
 }

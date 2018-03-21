@@ -1,6 +1,6 @@
 <?php
 
-namespace SocialiteProviders\Weixin;
+namespace SocialiteProviders\Pinduoduo;
 
 use SocialiteProviders\Manager\SocialiteWasCalled;
 
